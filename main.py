@@ -98,6 +98,10 @@ def getJustifiedText() :
         res.status_code = 415
         return res
 
+@app.route('/')
+def index() :
+    return 'hello world !'
+
 @app.errorhandler(404)
 def not_found(error):
     res = Response(response = 'Error : Request not found !', content_type = 'text/plain')
