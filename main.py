@@ -1,16 +1,16 @@
 #!flask/bin/python
-# encode: utf8
+# -*- coding: utf-8 -*-
 import re
 import uuid
 from flask import Flask, request, Response, g
-from flask_httpauth import HTTPBasicAuth
+from functools import wraps
 from text_justify import Justify
+from database import Database
 
 app = Flask(__name__)
 app.debug = True
-auth = HTTPBasicAuth()
 
-users = {}
+db = Database()
 
 @app.after_request
 def after_request(res):
@@ -19,15 +19,30 @@ def after_request(res):
     res.headers.add('Access-Control-Allow-Methods', 'GET, POST')
     return res
 
-@auth.get_password
-def get_pwd(username) :
-    if username in users :
-        return users.get(username)
-    return None
+def check_auth(username, password):
+    """This function is called to check if a username /
+    password combination is valid.
+    """
+    for user in db.getUsers() :
+        if user['email'] == username and user['pwd'] == password :
+            return True
+    return False
 
-@auth.hash_password
-def hash_pwd(password) :
-    return md5(password).hexdigest()
+def authenticate():
+    """Sends a 401 response that enables basic auth"""
+    return Response(
+    'Could not verify your access level for that URL.\n'
+    'You have to login with proper credentials', 401,
+    {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return authenticate()
+        return f(*args, **kwargs)
+    return decorated
 
 @app.route('/api/token', methods = ['POST'])
 def give_token() :
@@ -35,46 +50,50 @@ def give_token() :
         if not request.is_json :
             res = Response()
             res.status_code = 400
-            return res
         else :
             data = request.get_json()
             if 'email' not in data.keys() : 
                 res = Response(response = "Error : Bad request body !", content_type = 'text/plain')
                 res.status_code = 400
-                return res
-            elif data['email'] in users :
+            elif db.userExists(data['email']) :
                 res = Response(response = "Error : The user <" + data['email'] + "> has already got a token !", content_type = 'text/plain')
                 res.status_code = 400
-                return res
+            elif re.match(r"(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$)", data['email']) == None :
+                res = Response(response = "Error : Given email has bad format !", content_type = 'text/plain')
+                res.status_code = 400
             else :
                 g.uuid = uuid.uuid1().hex
-                users[data['email']] = g.uuid
-                print(users)
+                db.saveUser(data['email'], g.uuid)
                 res = Response(response = "Your tokent is : " + g.uuid, content_type = 'text/plain')
                 res.status_code = 200
-                return res
     else :
         res = Response(response = 'Error : Bad content-type', content_type = 'text/plain')
         res.status_code = 415
-        return res
+    print(db.getUsers())
+    return res
 
 @app.route('/api/justify', methods = ['POST'])
+@requires_auth
 def getJustifiedText() :
     if request.headers['content-type'] == 'text/plain' :
         data = request.get_data(as_text = True)
-        print(type(data))
-        J = Justify(data, 80)
-        J.resolve()
-        res = ""
-        for e in J.text_justified :
-            res += e + '\n'
-        res = Response(response = res, content_type = 'text/plain')
-        res.status_code = 200
-        return res
+        user = request.authorization.username
+        if len(data) + db.getNbWordsByUser(user) > 80000 :
+            res = Response(response = "Error : You cannot go over 80000 words per day !\n", content_type = 'text/plain')
+            res.status_code = 402
+        else :
+            J = Justify(data, 80)
+            J.resolve()
+            res = ""
+            for e in J.text_justified :
+                res += e + '\n'
+            db.save_justification(user, len(data))
+            res = Response(response = res, content_type = 'text/plain')
+            res.status_code = 200
     else :
         res = Response(response = 'Error : Bad content-type', content_type = 'text/plain')
         res.status_code = 415
-        return res
+    return res
 
 @app.errorhandler(404)
 def not_found(error):

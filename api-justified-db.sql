@@ -1,0 +1,1 @@
+SELECT * FROM `api-justify`.text_justifed;
