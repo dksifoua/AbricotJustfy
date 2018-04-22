@@ -9,12 +9,14 @@ class Database :
         'host' : 'db-api-justify.mysql.database.azure.com',
         'user' : 'admin-ad-api@db-api-justify',
         'password' : 'eE77ae62465811e896f5548ca0d1cf18',
-        'database' : 'api-justify'
+        'database' : 'api-justify',
+        'port' : 3306
     }
 
     def __init__(self) : 
         try :
-            self.conn = mysql.connector.connect(**self.config)
+            self.conn = mysql.connector.connect(user=self.config['user'], password=self.config['password'], host=self.config['host'], port=self.config['port'], database=self.config['database'])
+            # self.conn = mysql.connector.connect(**self.config)
         except mysql.connector.Error as err :
             if err.errno == errorcode.ER_ACCESS_DENIED_ERROR :
                 print("Something is wrong with the user name or password")
